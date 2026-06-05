@@ -24,14 +24,23 @@ void LIS3MDLManager::begin() {
     bool success = false;
     // Initializing I2C and loading previous calibration
     if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(I2C_xBlockTime)) == pdTRUE) {
-        if (!_mag->begin_I2C()) {
-            ESP_LOGE(TAG, "Failed to find LIS3MDL chip");
-        } else {
+        uint8_t lisAddrs[] = {0x1E, 0x1C};
+        for (uint8_t addr : lisAddrs) {
+            if (_mag->begin_I2C(addr, &Wire)) {
+                Serial.printf("[LIS3MDL] ✅ Found LIS3MDL at 0x%02X\n", addr);
+                success = true;
+                break;
+            }
+            delay(10);
+        }
+
+        if (success) {
             _mag->setPerformanceMode(LIS3MDL_ULTRAHIGHMODE);
             _mag->setOperationMode(LIS3MDL_CONTINUOUSMODE);
             _mag->setDataRate(LIS3MDL_DATARATE_155_HZ);
             _mag->setRange(LIS3MDL_RANGE_4_GAUSS);
-            success = true;
+        } else {
+            ESP_LOGE(TAG, "Failed to find LIS3MDL chip");
         }
         xSemaphoreGive(xI2CSemaphore);
     }
@@ -93,7 +102,16 @@ void LIS3MDLManager::runLoop() {
 }
 
 void LIS3MDLManager::getCalibratedXYZ(float &x, float &y, float &z) const {
-    x = _x; y = _y; z = _z;
+    if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(I2C_xBlockTime)) == pdTRUE) {
+        x = _x;
+        y = _y;
+        z = _z;
+        xSemaphoreGive(xI2CSemaphore);
+    } else {
+        x = 0.0f;
+        y = 0.0f;
+        z = 0.0f;
+    }
 }
 
 void LIS3MDLManager::calibrate(int test_duration_ms, int sample_delay) {

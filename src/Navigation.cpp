@@ -1,5 +1,9 @@
 #include "Navigation.h"
+#include "LIS3MDLManager.h"
 #include <math.h>
+
+extern SemaphoreHandle_t xI2CSemaphore;
+extern LIS3MDLManager magManager;
 
 Navigation::Navigation() {
     memset(&_rawData, 0, sizeof(ImuData));
@@ -18,11 +22,14 @@ bool Navigation::begin() {
     bool lsmFound = false;
     uint8_t lsmAddrs[] = {0x6A, 0x6B};
     for (uint8_t addr : lsmAddrs) {
-        if (_lsm.begin_I2C(addr, &Wire)) {
-            Serial.printf("[Nav] ✅ LSM6DS3 found at 0x%02X\n", addr);
-            lsmFound = true;
-            break;
+        if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (_lsm.begin_I2C(addr, &Wire)) {
+                Serial.printf("[Nav] ✅ LSM6DS3 found at 0x%02X\n", addr);
+                lsmFound = true;
+            }
+            xSemaphoreGive(xI2CSemaphore);
         }
+        if (lsmFound) break;
         delay(10);
     }
 
@@ -33,24 +40,8 @@ bool Navigation::begin() {
     
     delay(100);
 
-    // 2. Detect LIS3MDL (Magnetometer)
-    bool lisFound = false;
-    uint8_t lisAddrs[] = {0x1C, 0x1E};
-    for (uint8_t addr : lisAddrs) {
-        if (_lis.begin_I2C(addr, &Wire)) {
-            Serial.printf("[Nav] ✅ LIS3MDL found at 0x%02X\n", addr);
-            lisFound = true;
-            break;
-        }
-        delay(10);
-    }
-
-    if (!lisFound) {
-        Serial.println("[Nav] ❌ ERROR: LIS3MDL not found on I2C bus");
-        return false;
-    }
-
-    Serial.println("[Nav] ✅ Both IMU sensors initialized");
+    // 2. Magnetometer is managed by the shared LIS3MDL manager task
+    Serial.println("[Nav] ✅ LSM6DS3 initialized; LIS3MDL handled by magManager");
     
     // Calibrate gyro at startup
     calibrateGyro();
@@ -72,7 +63,13 @@ void Navigation::calibrateGyro() {
 
         for (int i = 0; i < samples; i++) {
             sensors_event_t accel, gyro, temp;
-            _lsm.getEvent(&accel, &gyro, &temp);
+            if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+                _lsm.getEvent(&accel, &gyro, &temp);
+                xSemaphoreGive(xI2CSemaphore);
+            } else {
+                delay(5);
+                continue;
+            }
             float val = gyro.gyro.z;
             sumZ += val;
             sumSqZ += val * val; 
@@ -105,9 +102,16 @@ void Navigation::update() {
     _lastUpdate = now;
 
     // Read raw sensor data
-    sensors_event_t accelEvent, gyroEvent, tempEvent, magEvent;
-    _lsm.getEvent(&accelEvent, &gyroEvent, &tempEvent);
-    _lis.getEvent(&magEvent);
+    sensors_event_t accelEvent, gyroEvent, tempEvent;
+    if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(20)) == pdTRUE) {
+        _lsm.getEvent(&accelEvent, &gyroEvent, &tempEvent);
+        xSemaphoreGive(xI2CSemaphore);
+    } else {
+        return;
+    }
+
+    float magX, magY, magZ;
+    magManager.getCalibratedXYZ(magX, magY, magZ);
 
     // Map sensor axes to robot frame (X=Forward, Y=Left, Z=Up)
     _rawData.accelX = accelEvent.acceleration.y;
@@ -119,11 +123,11 @@ void Navigation::update() {
     _rawData.gyroZ = -gyroEvent.gyro.z;
 
     // Magnetometer (negated for correct North alignment)
-    _rawData.magX = -magEvent.magnetic.y;
-    _rawData.magY = magEvent.magnetic.x;
-    _rawData.magZ = magEvent.magnetic.z;
+    _rawData.magX = -magY;
+    _rawData.magY = magX;
+    _rawData.magZ = magZ;
 
-    // Apply hard-iron offsets and soft-iron scale
+    // Apply hard-iron offsets and soft-iron scale (Navigation-level default: no extra correction)
     float correctedMagX = (_rawData.magX - _magOffsetX) * _magScaleX;
     float correctedMagY = (_rawData.magY - _magOffsetY) * _magScaleY;
     float correctedMagZ = (_rawData.magZ - _magOffsetZ) * _magScaleZ;

@@ -58,9 +58,24 @@ void setup() {
         while (true) delay(1000);
     }
 
+    // 1. I2C bus recovery before initialization
+    Serial.println("[Setup] Performing I2C bus recovery...");
+    pinMode(Config::PIN_I2C_SCL, OUTPUT);
+    pinMode(Config::PIN_I2C_SDA, OUTPUT);
+    digitalWrite(Config::PIN_I2C_SDA, HIGH);
+    for (int i = 0; i < 10; i++) {
+        digitalWrite(Config::PIN_I2C_SCL, LOW);
+        delayMicroseconds(10);
+        digitalWrite(Config::PIN_I2C_SCL, HIGH);
+        delayMicroseconds(10);
+    }
+    pinMode(Config::PIN_I2C_SDA, INPUT_PULLUP);
+    pinMode(Config::PIN_I2C_SCL, INPUT_PULLUP);
+    delay(50);
+
     // 2. I2C bus for IMU sensors
     Wire.begin(Config::PIN_I2C_SDA, Config::PIN_I2C_SCL, Config::I2C_FREQUENCY);
-    Wire.setTimeOut(25); // Set 25ms timeout for I2C recovery
+    Wire.setTimeOut(100); // Set 100ms timeout for I2C recovery
     Serial.printf("[Setup] I2C initialized (SDA:%d, SCL:%d, %dkHz)\n", 
                   Config::PIN_I2C_SDA, Config::PIN_I2C_SCL, Config::I2C_FREQUENCY / 1000);
 

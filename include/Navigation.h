@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_LSM6DS3.h>
-#include <Adafruit_LIS3MDL.h>
 #include "Config.h"
 #include "MagnetometerCalibrator.h"
 
@@ -24,8 +23,8 @@ struct OrientationData {
  * @class Navigation
  * @brief IMU sensor fusion with magnetometer calibration
  * 
- * Combines LSM6DS3 (accel/gyro) + LIS3MDL (magnetometer)
- * with hard-iron calibration and complementary filtering
+ * Uses LSM6DS3 (accel/gyro) plus the shared LIS3MDL manager instance
+ * for magnetometer data, with hard-iron calibration and complementary filtering
  */
 class Navigation {
 public:
@@ -63,7 +62,6 @@ public:
 private:
     NavData _data;
     Adafruit_LSM6DS3 _lsm;
-    Adafruit_LIS3MDL _lis;
     ImuData _rawData;
     OrientationData _orientation;
 
