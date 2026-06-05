@@ -12,6 +12,14 @@ static constexpr uint32_t I2C_xBlockTime = 10;
 static constexpr uint32_t I2C_RETRY_DELAY = 5;
 static constexpr uint32_t DEFAULT_STACK_SIZE = 4096;
 
+// Live calibration tracking variables are file-scoped for the singleton manager instance.
+static float g_tempMinX = 1000.0f;
+static float g_tempMaxX = -1000.0f;
+static float g_tempMinY = 1000.0f;
+static float g_tempMaxY = -1000.0f;
+static float g_tempMinZ = 1000.0f;
+static float g_tempMaxZ = -1000.0f;
+
 // Global instance
 LIS3MDLManager magManager;
 static const char* TAG = "LIS3MDL";
@@ -75,6 +83,15 @@ void LIS3MDLManager::runLoop() {
             _x = (event.magnetic.x - _ox) * _sx;
             _y = (event.magnetic.y - _oy) * _sy;
             _z = (event.magnetic.z - _oz) * _sz;
+
+            if (_isCalibrating) {
+                if (event.magnetic.x < g_tempMinX) g_tempMinX = event.magnetic.x;
+                if (event.magnetic.x > g_tempMaxX) g_tempMaxX = event.magnetic.x;
+                if (event.magnetic.y < g_tempMinY) g_tempMinY = event.magnetic.y;
+                if (event.magnetic.y > g_tempMaxY) g_tempMaxY = event.magnetic.y;
+                if (event.magnetic.z < g_tempMinZ) g_tempMinZ = event.magnetic.z;
+                if (event.magnetic.z > g_tempMaxZ) g_tempMaxZ = event.magnetic.z;
+            }
             
             // Calculate raw heading in radians
             float rad = atan2(_y, _x);
@@ -92,6 +109,12 @@ void LIS3MDLManager::runLoop() {
 
             float smoothedAz = atan2(_filtSin, _filtCos) * 180.0f / PI;
             _heading = (smoothedAz < 0) ? (smoothedAz + 360.0f) : smoothedAz;
+
+            if (_isCalibrating) {
+                _calX.push_back(event.magnetic.x);
+                _calY.push_back(event.magnetic.y);
+                _calZ.push_back(event.magnetic.z);
+            }
 
             xSemaphoreGive(xI2CSemaphore);
             vTaskDelay(pdMS_TO_TICKS(100)); // Sample rate for navigation
@@ -116,7 +139,10 @@ void LIS3MDLManager::getCalibratedXYZ(float &x, float &y, float &z) const {
 
 void LIS3MDLManager::calibrate(int test_duration_ms, int sample_delay) {
     ESP_LOGI(TAG, "Calibration Started: Rotate robot on all axes...");
-    _calibrated = false; 
+    _calibrated = false;
+    _isCalibrating = true;
+    _calStartTime = millis();
+    _calDuration = test_duration_ms;
     
     size_t expected_samples = test_duration_ms / sample_delay;
     std::vector<float> x_vals, y_vals, z_vals;
@@ -127,7 +153,7 @@ void LIS3MDLManager::calibrate(int test_duration_ms, int sample_delay) {
     z_vals.reserve(expected_samples + 1);
 
     sensors_event_t event;
-    unsigned long start = millis();
+    unsigned long start = _calStartTime;
     while ((millis() - start) < (unsigned long)test_duration_ms) {
         if (xSemaphoreTake(xI2CSemaphore, pdMS_TO_TICKS(I2C_xBlockTime)) == pdTRUE) {
             _mag->getEvent(&event);
@@ -155,7 +181,7 @@ void LIS3MDLManager::calibrate(int test_duration_ms, int sample_delay) {
     sx = avg / dx; sy = avg / dy; sz = avg / dz;
 
     saveCalibration(ox, oy, oz, sx, sy, sz);
-    ESP_LOGI(TAG, "Calibration Saved to NVS.");
+    ESP_LOGI(TAG, "Calibration Saved to NVS. Waiting for stopCalibration() to end active calibration state.");
 }
 
 void LIS3MDLManager::loadCalibration() {
@@ -174,11 +200,40 @@ void LIS3MDLManager::loadCalibration() {
 void LIS3MDLManager::startCalibration() {
     _isCalibrating = true;
     _calStartTime = millis();
+    _calX.clear();
+    _calY.clear();
+    _calZ.clear();
+    g_tempMinX = g_tempMinY = g_tempMinZ = 1000.0f;
+    g_tempMaxX = g_tempMaxY = g_tempMaxZ = -1000.0f;
     Serial.println("[LIS3MDL] Live calibration started...");
 }
 
 void LIS3MDLManager::stopCalibration() {
+    if (!_isCalibrating) return;
+
+    unsigned long elapsed = millis() - _calStartTime;
+    bool complete = elapsed >= (unsigned long)_calDuration;
+
+    if (complete) {
+        float ox = (g_tempMaxX + g_tempMinX) / 2.0f;
+        float oy = (g_tempMaxY + g_tempMinY) / 2.0f;
+        float oz = (g_tempMaxZ + g_tempMinZ) / 2.0f;
+        
+        float dx = (g_tempMaxX - g_tempMinX) / 2.0f;
+        float dy = (g_tempMaxY - g_tempMinY) / 2.0f;
+        float dz = (g_tempMaxZ - g_tempMinZ) / 2.0f;
+        float avg = (dx + dy + dz) / 3.0f;
+
+        saveCalibration(ox, oy, oz, avg / (dx == 0 ? 1.0f : dx), avg / (dy == 0 ? 1.0f : dy), avg / (dz == 0 ? 1.0f : dz));
+        Serial.printf("[LIS3MDL] Live calibration finished. Elapsed=%lu ms, Samples=%zu\n", elapsed, _calX.size());
+    } else {
+        Serial.printf("[LIS3MDL] Live calibration aborted at %lu ms with %zu samples.\n", elapsed, _calX.size());
+    }
+
     _isCalibrating = false;
+    _calX.clear();
+    _calY.clear();
+    _calZ.clear();
     Serial.println("[LIS3MDL] Live calibration stopped.");
 }
 

@@ -79,9 +79,16 @@ private:
     unsigned long _calStartTime = 0;
     int _calDuration = 30000;
 
+    // Live sampling variables for background calibration are handled in the implementation.
+
     // Calibration parameters
     float _ox = 0, _oy = 0, _oz = 0;
     float _sx = 1.0, _sy = 1.0, _sz = 1.0;
+
+    // Temporary storage for live calibration samples
+    std::vector<float> _calX;
+    std::vector<float> _calY;
+    std::vector<float> _calZ;
 
     // Smoothing Filter variables
     float _alpha = 0.2f;    // EMA factor (0.2 is a good balance between lag and stability)
