@@ -1,0 +1,145 @@
+Draw a triangle with a two wheel differential robot and a forward offset pen so each corner is as sharp and accurate as possible.
+Key kinematic variables (symbolic)
+•	B — wheel track (distance between wheel centers), meters.
+•	r — forward offset from axle midpoint to pen, meters.
+•	Dw — wheel diameter, meters.
+•	Trev — encoder ticks per wheel revolution.
+•	si — pen side lengths (meters) for edges i=1..3.
+•	Δθi — robot heading change at corner i (radians). For a triangle, Δθi equals the exterior turning angle between edges (e.g., for an equilateral triangle Δθ=2π3 or use interior→exterior conversion).
+•	wheelCirc = πDw, ticksPerMeter = Trev/wheelCirc.
+Core formulas (rotate about the pen)
+When you rotate the robot about the pen by Δθ, the left and right wheels follow concentric arcs of radii
+RL=r−B2,RR=r+B2.
+Wheel arc lengths for that rotation are
+dL=RLΔθ,dR=RRΔθ.
+For a straight pen motion of length s:
+dL=dR=s.
+Convert to encoder ticks:
+ticks=round(meters⋅ticksPerMeter).
+These same geometric relations are the standard approach used when reasoning about pen offset differential drives. 
+Why rotate about the pen for a perfect corner
+•	Rotating about the pen point keeps the pen stationary while the robot changes heading, so the pen stays exactly at the corner point.
+•	If you instead pivot about the axle center, the pen describes an arc and the corner will be rounded.
+•	To achieve the sharpest corner, execute a rotation primitive whose wheel distances equal the arc lengths above (or split that rotation into many small substeps to avoid encoder quantization and reduce slip).
+Practical algorithm for the most perfect corner (robust, Arduino ready)
+1.	Precompute constants
+o	wheelCirc = PI * D_w; ticksPerMeter = T_rev / wheelCirc;
+o	Rl = r - B/2; Rr = r + B/2;
+2.	Motion primitives
+o	ticksFromMeters(m) = round(m * ticksPerMeter)
+o	driveWheelsRelative(ticksL, ticksR) — blocking routine that drives both wheels to relative encoder targets using closed loop control (velocity profile + PID). Must read encoders and stop when both targets reached.
+3.	Straight side
+o	For side length s: ticks = ticksFromMeters(s); driveWheelsRelative(ticks, ticks).
+4.	Rotate about pen
+o	For corner rotation Δθ: dL = Rl * Δθ; dR = Rr * Δθ; ticksL = ticksFromMeters(dL); ticksR = ticksFromMeters(dR); If abs(ticksL) or abs(ticksR) is zero (quantization), split Δθ into N substeps so each substep produces nonzero ticks:
+N=max⁡ ⁣(1,  ⌈\minTickThresholdmin⁡(∣dL∣,∣dR∣)⌉)
+then loop N times with Δθ/N.
+5.	Slip mitigation
+o	Use velocity profiling (trapezoidal) and PID on wheel velocity rather than simple position P on remaining ticks.
+o	Use short acceleration/deceleration ramps to reduce wheel slip during the rotation about the pen.
+6.	Verification and correction
+o	After each corner, optionally measure pen position (camera, line sensor, or external reference). If error > tolerance, apply a small corrective rotation about the pen or small straight correction.
+Arduino style pseudocode (complete, ready to adapt)
+cpp
+// --- Parameters (set to your robot) ---
+const float B = /* meters */;
+const float r = /* meters */;
+const float D_w = /* meters */;
+const long T_rev = /* ticks per wheel rev */;
+const float wheelCirc = PI * D_w;
+const float ticksPerMeter = T_rev / wheelCirc;
+const int minTickThreshold = 2; // smallest reliable tick movement
+
+// Hardware placeholders (implement for your platform)
+long readLeftEncoder();
+long readRightEncoder();
+void setLeftMotorPWM(float pwm);   // -1..1
+void setRightMotorPWM(float pwm);
+void stopMotors();
+void delayMs(unsigned long ms);
+
+// Convert meters to ticks
+long ticksFromMeters(float m) {
+  return (long)round(m * ticksPerMeter);
+}
+
+// Blocking drive to relative ticks (replace with velocity profile + PID)
+void driveWheelsRelative(long relL, long relR) {
+  long startL = readLeftEncoder();
+  long startR = readRightEncoder();
+  long targetL = startL + relL;
+  long targetR = startR + relR;
+  const float Kp = 0.8f;
+  while (true) {
+    long curL = readLeftEncoder();
+    long curR = readRightEncoder();
+    long errL = targetL - curL;
+    long errR = targetR - curR;
+    if (abs(errL) <= 1 && abs(errR) <= 1) break;
+    float pwmL = constrain(Kp * errL, -1.0f, 1.0f);
+    float pwmR = constrain(Kp * errR, -1.0f, 1.0f);
+    setLeftMotorPWM(pwmL);
+    setRightMotorPWM(pwmR);
+    delayMs(10);
+  }
+  stopMotors();
+  delayMs(30);
+}
+
+// Straight motion (pen moves s meters)
+void driveStraightMeters(float s) {
+  long ticks = ticksFromMeters(s);
+  driveWheelsRelative(ticks, ticks);
+}
+
+// Rotate about pen by deltaTheta (radians)
+void rotateAboutPen(float deltaTheta) {
+  float Rl = r - (B / 2.0f);
+  float Rr = r + (B / 2.0f);
+  float dL = Rl * deltaTheta;
+  float dR = Rr * deltaTheta;
+  long ticksL = ticksFromMeters(dL);
+  long ticksR = ticksFromMeters(dR);
+
+  // If quantization makes ticks zero, split into substeps
+  int N = 1;
+  long minAbs = min(abs(ticksL), abs(ticksR));
+  if (minAbs < minTickThreshold) {
+    // choose N so each substep yields at least minTickThreshold ticks
+    float needed = (float)minTickThreshold / max(1.0f, (float)minAbs);
+    N = (int)ceil(needed);
+    if (N < 1) N = 1;
+  }
+  for (int i = 0; i < N; ++i) {
+    long subTicksL = ticksFromMeters(dL / N);
+    long subTicksR = ticksFromMeters(dR / N);
+    driveWheelsRelative(subTicksL, subTicksR);
+  }
+}
+
+// Draw triangle: sides[3] are pen side lengths; cornerAngles[3] are heading changes (radians)
+void drawPolygon(int n, float sides[], float cornerAngles[]) {
+  for (int i = 0; i < n; ++i) {
+    driveStraightMeters(sides[i]);
+    rotateAboutPen(cornerAngles[i]);
+  }
+}
+
+// Example for triangle (equilateral example)
+void setup() {
+  float sides[3] = {0.20f, 0.20f, 0.20f}; // 20 cm each
+  // For equilateral triangle the robot must turn by +120 degrees (2PI/3) about the pen
+  float cornerAngles[3] = {2.0f*PI/3.0f, 2.0f*PI/3.0f, 2.0f*PI/3.0f};
+  drawPolygon(3, sides, cornerAngles);
+}
+void loop() {}
+
+
+Tuning checklist for the most perfect corner
+•	Measure actual B and r precisely (use calipers).
+•	Calibrate ticksPerMeter by commanding a long straight and measuring encoder counts.
+•	Use velocity control (profiled motion) and PID on wheel speed to reduce slip.
+•	Split rotations into substeps if encoder quantization would zero out small arc distances.
+•	Test single corner repeatedly and measure pen drift; adjust r sign/values if needed.
+•	Add sensor feedback (camera or IMU) for closed loop correction if you need sub millimeter accuracy.
+
