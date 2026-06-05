@@ -174,8 +174,8 @@ void loop() {
         driveTrain.getPosition(&posX, &posY, &heading);
         packet.robotX = posX;
         packet.robotY = posY;
-        // Use magnetometer-corrected heading as primary robot heading
-        packet.robotHeading = magManager.getHeading();
+        // Use fused, tilt-compensated heading for telemetry
+        packet.robotHeading = navigation.getCorrectedHeadingDeg();
         // Provide odometry-only heading as ghostHeading for diagnostics
         packet.ghostHeading = heading * 180.0f / M_PI;  // Convert to degrees
 
@@ -197,10 +197,10 @@ void loop() {
 
         // Battery
         packet.batteryVoltage = battery.getVoltage();
-        packet.isCalibrated = magManager.isCalibrated();
+        packet.isCalibrated = navigation.isMagnetometerCalibrated();
 
         // Calibration progress
-        packet.targetTheta = 0; // Calibration progress handled locally if needed
+        packet.targetTheta = navigation.getCalibrationProgress(); 
 
         // Send to BLE
         if (bluetoothManager.isActivated() && bluetoothManager.isConnected) {

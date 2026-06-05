@@ -14,12 +14,23 @@ class Adafruit_LIS3MDL; // Forward declaration for LIS3MDL
 class LIS3MDLManager {
 public:
     LIS3MDLManager();
+
+    // Enforce singleton semantics: Non-copyable and non-movable
+    LIS3MDLManager(const LIS3MDLManager&) = delete;
+    LIS3MDLManager& operator=(const LIS3MDLManager&) = delete;
+    LIS3MDLManager(LIS3MDLManager&&) = delete;
+    LIS3MDLManager& operator=(LIS3MDLManager&&) = delete;
     
     // Initialization and Task Management
     void begin();
     static void taskEntry(void* pvParameters);
 
     // Calibration Logic
+    void startCalibration();
+    void stopCalibration();
+    bool isCalibrating() const { return _isCalibrating; }
+    int getCalibrationProgress() const;
+
     void calibrate(int test_duration_ms = 30000, int sample_delay = 100);
     void loadCalibration();
     void saveCalibration(float ox, float oy, float oz, float sx, float sy, float sz);
@@ -62,6 +73,11 @@ private:
     float _z = 0;
     float _heading = 0.0f;
     bool _calibrated = false;
+
+    // Live calibration state
+    bool _isCalibrating = false;
+    unsigned long _calStartTime = 0;
+    int _calDuration = 30000;
 
     // Calibration parameters
     float _ox = 0, _oy = 0, _oz = 0;

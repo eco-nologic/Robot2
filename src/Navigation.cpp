@@ -8,10 +8,6 @@ extern LIS3MDLManager magManager;
 Navigation::Navigation() {
     memset(&_rawData, 0, sizeof(ImuData));
     memset(&_orientation, 0, sizeof(OrientationData));
-    _magMinX = 1000.0f;
-    _magMaxX = -1000.0f;
-    _magMinY = 1000.0f;
-    _magMaxY = -1000.0f;
 }
 
 bool Navigation::begin() {
@@ -127,16 +123,10 @@ void Navigation::update() {
     _rawData.magY = magX;
     _rawData.magZ = magZ;
 
-    // Apply hard-iron offsets and soft-iron scale (Navigation-level default: no extra correction)
-    float correctedMagX = (_rawData.magX - _magOffsetX) * _magScaleX;
-    float correctedMagY = (_rawData.magY - _magOffsetY) * _magScaleY;
-    float correctedMagZ = (_rawData.magZ - _magOffsetZ) * _magScaleZ;
-
-    // Collect samples during calibration using the calibrator
-    if (_isCalibrating) {
-        _calibrator.addSample(_rawData.magX, _rawData.magY, _rawData.magZ);
-        _calibrationSamples = (int)_calibrator.sampleCount();
-    }
+    // Data from magManager is already calibrated. Use directly for tilt compensation.
+    float correctedMagX = _rawData.magX;
+    float correctedMagY = _rawData.magY;
+    float correctedMagZ = _rawData.magZ;
 
     // Calculate roll and pitch for tilt compensation
     _orientation.roll = atan2(_rawData.accelY, _rawData.accelZ);
@@ -175,43 +165,32 @@ void Navigation::update() {
 }
 
 void Navigation::startMagnetometerCalibration() {
-    _calibrator.clear();
-    _isCalibrating = true;
-    _calibrationSamples = 0;
-    _data.isCalibrated = false;
-    Serial.println("[Nav] Starting magnetometer calibration (rotate 360° slowly)");
+    // DEFENSE: "Pourquoi déléguer la calibration au magManager ?"
+    // ANSWER: Pour respecter le principe de responsabilité unique. Navigation gère la fusion 
+    // de cap, mais c'est le magManager qui possède le matériel et calcule les offsets.
+    magManager.startCalibration(); 
+    Serial.println("[Nav] Magnetometer calibration initiated via magManager");
 }
 
 void Navigation::stopMagnetometerCalibration() {
-    _isCalibrating = false;
-    // Compute calibrator results
-    _calibrator.compute();
-    float ox, oy, oz, sx, sy, sz;
-    _calibrator.getOffsets(ox, oy, oz);
-    _calibrator.getScales(sx, sy, sz);
-    _magOffsetX = ox;
-    _magOffsetY = oy;
-    _magOffsetZ = oz;
-    _magScaleX = sx;
-    _magScaleY = sy;
-    _magScaleZ = sz;
-    _data.isCalibrated = true;
+    magManager.stopCalibration();
 
     // Reset heading filter to snap to new offsets
     _lastUpdate = 0;
     _headingIntegral = 0;
-    Serial.printf("[Nav] Calibration complete. Offsets X:%.2f, Y:%.2f, Z:%.2f (%d samples)\n", 
-                  _magOffsetX, _magOffsetY, _magOffsetZ, _calibrationSamples);
-    Serial.printf("[Nav] Scale X:%.3f, Y:%.3f, Z:%.3f\n", _magScaleX, _magScaleY, _magScaleZ);
+    Serial.println("[Nav] Calibration stopped. Filter reset to new baseline.");
 }
 
 bool Navigation::isMagnetometerCalibrated() const {
-    return _data.isCalibrated;
+    return magManager.isCalibrated();
+}
+
+bool Navigation::isCalibrating() const {
+    return magManager.isCalibrating();
 }
 
 int Navigation::getCalibrationProgress() const {
-    if (!_isCalibrating) return 0;
-    return constrain((int)(_calibrationSamples * 100 / CALIBRATION_SAMPLE_LIMIT), 0, 100);
+    return magManager.getCalibrationProgress();
 }
 
 float Navigation::getCorrectedHeadingDeg() const {

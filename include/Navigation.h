@@ -57,7 +57,7 @@ public:
 
     // Calibration progress (0-100%)
     int getCalibrationProgress() const;
-    bool isCalibrating() const { return _isCalibrating; }
+    bool isCalibrating() const;
 
 private:
     NavData _data;

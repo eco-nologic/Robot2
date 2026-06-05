@@ -1,6 +1,8 @@
 Import("env")
 
 def post_upload_action(source, target, env):
+    print("[Post-Upload Hook] No LittleFS upload skipped. Proceeding with post-upload actions...")
+    return
     print("\n[Post-Upload Hook] Firmware successfully flashed.")
     print("[Post-Upload Hook] Triggering automated LittleFS upload for 'data' folder...")
     

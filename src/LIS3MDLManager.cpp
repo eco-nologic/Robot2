@@ -171,6 +171,22 @@ void LIS3MDLManager::loadCalibration() {
     ESP_LOGI(TAG, "Loaded Calibration: Offsets(%.1f,%.1f,%.1f)", _ox, _oy, _oz);
 }
 
+void LIS3MDLManager::startCalibration() {
+    _isCalibrating = true;
+    _calStartTime = millis();
+    Serial.println("[LIS3MDL] Live calibration started...");
+}
+
+void LIS3MDLManager::stopCalibration() {
+    _isCalibrating = false;
+    Serial.println("[LIS3MDL] Live calibration stopped.");
+}
+
+int LIS3MDLManager::getCalibrationProgress() const {
+    if (!_isCalibrating) return 0;
+    return constrain((int)((millis() - _calStartTime) * 100 / _calDuration), 0, 100);
+}
+
 void LIS3MDLManager::saveCalibration(float ox, float oy, float oz, float sx, float sy, float sz) {
     _prefs.begin("mag_cal", false);
     _prefs.putFloat("ox", ox);
