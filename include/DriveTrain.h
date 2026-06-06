@@ -13,8 +13,8 @@
  * Converts desired velocities (linear v, angular ω) to individual motor speeds.
  * 
  * Kinematics equations:
- *   v_left  = (v - ω * L/2) / r    where L = wheelbase, r = wheel radius
- *   v_right = (v + ω * L/2) / r
+ *   v_left  = v - ω * L/2    where L = wheelbase
+ *   v_right = v + ω * L/2
  */
 class DriveTrain {
 public:

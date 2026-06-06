@@ -19,7 +19,7 @@ static const unsigned long MOVE_DURATIONS_MS[] = {3000,3000,3000,3000,3000,3000,
 static const int MOVE_COUNT = 8;
 
 CalibrationSequence::CalibrationSequence()
-    : state_(Idle), current_move_(0), move_start_ms_(0), V_(0.2f) {}
+    : state_(Idle), current_move_(0), move_start_ms_(0) {}
 
 void CalibrationSequence::begin() {
     state_ = Move;
@@ -58,29 +58,30 @@ void CalibrationSequence::update(unsigned long now_ms) {
 
 void CalibrationSequence::startMove(int idx, unsigned long now_ms) {
     move_start_ms_ = now_ms;
-    // compute left/right speeds (m/s) according to move index, then convert to mm/s
-    float left_m=0, right_m=0;
+    // compute left/right speeds using hardware-based mm/s values from Config.h
+    float left_mm = 0.0f;
+    float right_mm = 0.0f;
+    float baseSpeedMmS = Config::MaxLinearSpeedMmS * 0.50f; // use 50% of the robot's reported max speed
+
     switch(idx) {
         case 0: case 2: case 4:
-            left_m = V_;
-            right_m = 0.4f*V_;
+            left_mm = baseSpeedMmS;
+            right_mm = 0.4f * baseSpeedMmS;
             break;
         case 1: case 3: case 5:
-            left_m = V_;
-            right_m = 1.6f*V_;
+            left_mm = baseSpeedMmS;
+            right_mm = 1.6f * baseSpeedMmS;
             break;
         case 6:
-            left_m = 0.9f*V_;
-            right_m = 0.9f*V_;
+            left_mm = 0.9f * baseSpeedMmS;
+            right_mm = 0.9f * baseSpeedMmS;
             break;
         case 7:
-            left_m = V_;
-            right_m = -V_;
+            left_mm = baseSpeedMmS;
+            right_mm = -baseSpeedMmS;
             break;
     }
-    // convert to mm/s
-    float left_mm = left_m * 1000.0f;
-    float right_mm = right_m * 1000.0f;
+
     float linear_mm = (left_mm + right_mm) / 2.0f;
     float angular_rad = 0.0f;
     if (fabs(right_mm - left_mm) > 0.0f) {

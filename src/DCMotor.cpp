@@ -178,13 +178,13 @@ void DCMotor::setSpeedMmPerSec(float speedMmPerSec) {
 }
 
 int DCMotor::speedTopwm(float speedMmPerSec) {
-    // Convert mm/s to encoder ticks/s
+    // Convert linear speed in mm/s to encoder ticks per second
     float ticksPerSec = speedMmPerSec / Config::MmPerEncoderStep;
-    
-    // Simple linear mapping: assume PWM is proportional to speed
-    // PWM = speed_ratio * MAX_PWM
-    float speedRatio = constrain(speedMmPerSec / Config::MaxLinearSpeedMmS, 0.0f, 1.0f);
+    float maxTicksPerSec = Config::MaxLinearSpeedMmS / Config::MmPerEncoderStep;
+
+    // Map the encoder-rate ratio to PWM, using the hardware speed calibration.
+    float speedRatio = constrain(ticksPerSec / maxTicksPerSec, 0.0f, 1.0f);
     int pwm = (int)(speedRatio * Config::MotorPwmMax);
-    
+
     return constrain(pwm, 0, Config::MotorPwmMax);
 }
