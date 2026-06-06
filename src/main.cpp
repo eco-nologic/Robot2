@@ -32,6 +32,8 @@ BluetoothManager bluetoothManager(&commandHandler);
 HeadingPIDController headingPID(2.0f, 0.05f, 0.1f); // Adjust Kp, Ki, Kd as needed
 float targetHeading = 0.0f;
 bool headingHoldEnabled = false;
+float manualLinearVelocity = 0.0f;
+float manualAngularVelocity = 0.0f;
 float baseForwardSpeed = 60.0f;
 
 // Timing
@@ -147,15 +149,30 @@ void loop() {
     // 2. Update IMU + heading
     navigation.update();
 
-    // 2b. Apply Heading PID Correction
-    if (headingHoldEnabled && !navigation.isCalibrating()) {
+    // 2b. Active motion control: calibration rotation, manual control, heading hold
+    if (navigation.isCalibrating()) {
+        // During magnetometer calibration, rotate the robot slowly in place.
+        const float calibrationAngularSpeed = 0.40f; // rad/s
+        driveTrain.setAngularVelocity(calibrationAngularSpeed);
+    } else if (manualLinearVelocity != 0.0f || manualAngularVelocity != 0.0f) {
+        // Manual BLE-driven motion
+        static float lastManualLinear = 0.0f;
+        static float lastManualAngular = 0.0f;
+        if (manualLinearVelocity != lastManualLinear || manualAngularVelocity != lastManualAngular) {
+            Serial.printf("[Main] Manual control active: linear=%.1f mm/s angular=%.2f rad/s\n", manualLinearVelocity, manualAngularVelocity);
+            lastManualLinear = manualLinearVelocity;
+            lastManualAngular = manualAngularVelocity;
+        }
+        driveTrain.setVelocity(manualLinearVelocity, manualAngularVelocity);
+    } else if (headingHoldEnabled) {
         float currentH = (float)magManager.getHeading();
         float correction = headingPID.compute(targetHeading, currentH, 0.020f); // 20ms = 0.02s
 
-        // Apply correction differentially
-        // If correction is positive, turn right (left motor faster, right motor slower)
-        motorLeft.setPwm(baseForwardSpeed + correction);
-        motorRight.setPwm(baseForwardSpeed - correction);
+        // Apply correction differentially (cast to int for PWM)
+        motorLeft.setPwm((int)(baseForwardSpeed + correction));
+        motorRight.setPwm((int)(baseForwardSpeed - correction));
+    } else {
+        driveTrain.stop();
     }
 
     // 3. Update battery monitor
