@@ -82,12 +82,14 @@ void BluetoothManager::sendTelemetry(const TelemetryPacket& packet) {
     if (!isConnected || !_isInitialized) return;
 
     char buffer[256];
+    // Include compass offset (CO) so remote can read and display the stored calibration
     snprintf(buffer, sizeof(buffer),
-             "A:%.1f,%.1f,%.1f|G:%.1f,%.1f,%.1f|M:%.1f,%.1f,%.1f|H:%.1f|B:%.1f|T:%lu|X:%.1f|Y:%.1f|Lth:%.1f|Ath:%.1f|Rth:%.1f|TV:%.1f|AV:%.1f|TW:%.3f|AW:%.3f|EL:%ld|ER:%ld",
+             "A:%.1f,%.1f,%.1f|G:%.1f,%.1f,%.1f|M:%.1f,%.1f,%.1f|H:%.1f|CO:%.2f|B:%.1f|T:%lu|X:%.1f|Y:%.1f|Lth:%.1f|Ath:%.1f|Rth:%.1f|TV:%.1f|AV:%.1f|TW:%.3f|AW:%.3f|EL:%ld|ER:%ld",
              packet.accelX, packet.accelY, packet.accelZ,
              packet.gyroX, packet.gyroY, packet.gyroZ,
              packet.magX, packet.magY, packet.magZ,
              packet.robotHeading,
+             Config::CompassOffsetDeg,
              packet.batteryVoltage,
              millis(),
              packet.robotX, packet.robotY,

@@ -6,6 +6,7 @@
 #include <Adafruit_LSM6DS3.h>
 #include "Config.h"
 #include "MagnetometerCalibrator.h"
+#include "MagnetometerFilter.h"
 
 // Raw IMU data structure
 struct ImuData {
@@ -30,6 +31,7 @@ class Navigation {
 public:
     struct NavData {
         float heading;       // Heading in degrees (0-360)
+        float rawMagHeading; // Raw magnetometer heading (tilt-compensated) in degrees (0-360)
         float gyroZ;         // Angular velocity (deg/s)
         bool isCalibrated;   // Magnetometer calibration state
     };
@@ -53,6 +55,7 @@ public:
     NavData getNavData() const { return _data; }
     ImuData getRawData() const { return _rawData; }
     float getHeading() const { return _data.heading; }
+    float getRawMagHeading() const { return _data.rawMagHeading; }
     float getCorrectedHeadingDeg() const;
 
     // Calibration progress (0-100%)
@@ -71,6 +74,9 @@ private:
     // Soft-iron scale factors (computed by calibrator)
     float _magScaleX = 1.0f, _magScaleY = 1.0f, _magScaleZ = 1.0f;
     MagnetometerCalibrator _calibrator;
+
+    // Magnetometer signal processing filter (RCMA: low latency, superior noise rejection)
+    MagnetometerFilter3D _magFilter{FilterType::RCMA, 15};
 
     // Gyro bias from startup calibration
     float _gyroBiasZ = 0;

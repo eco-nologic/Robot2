@@ -148,6 +148,18 @@ class RobotRemoteGUI:
         ttk.Button(special_frame, text="Calibrate Magnetometer", command=lambda: self.send_cmd("calibrateMag")).pack(fill="x", pady=2)
         ttk.Button(special_frame, text="📍 Reset Position (Set 0,0)", command=lambda: self.send_cmd("RESET_POSE")).pack(fill="x", pady=2)
 
+        # Compass offset control (read/write persisted value)
+        comp_frame = ttk.Frame(special_frame)
+        comp_frame.pack(fill="x", pady=2)
+        ttk.Label(comp_frame, text="Compass Offset (°):").pack(side="left")
+        self.ent_compass_offset = ttk.Entry(comp_frame, width=8)
+        self.ent_compass_offset.insert(0, "0.0")
+        self.ent_compass_offset.pack(side="left", padx=2)
+        ttk.Button(comp_frame, text="Set Offset", command=self.gui_set_compass_offset).pack(side="left", padx=2)
+        ttk.Button(comp_frame, text="Get Offset", command=self.gui_get_compass_offset).pack(side="left", padx=2)
+        self.lbl_compass_offset_current = ttk.Label(comp_frame, text="Current: --°")
+        self.lbl_compass_offset_current.pack(side="left", padx=8)
+
         wifi_frame = ttk.Frame(special_frame)
         wifi_frame.pack(fill="x", pady=2)
         ttk.Button(wifi_frame, text="🌐 WiFi ON", command=lambda: self.send_cmd("wifi", {"state": True})).pack(side="left", expand=True, fill="x", padx=2)
@@ -296,6 +308,12 @@ class RobotRemoteGUI:
             self.lbl_enc_r.config(text=f"Enc R: {enc_r}")
             self.draw_compass(h)
             self.draw_map()
+        if 'co' in self.telemetry:
+            try:
+                self.lbl_compass_offset_current.config(text=f"Current: {self.telemetry['co']:.2f}°")
+            except Exception:
+                pass
+
         self.root.after(200, self.update_ui_loop)
 
     def draw_compass(self, heading):
@@ -426,6 +444,7 @@ class RobotRemoteGUI:
                                         if 'AW' in kv: self.telemetry['aw'] = float(kv['AW'])
                                         if 'EL' in kv: self.telemetry['enc_l'] = int(kv['EL'])
                                         if 'ER' in kv: self.telemetry['enc_r'] = int(kv['ER'])
+                                        if 'CO' in kv: self.telemetry['co'] = float(kv['CO'])
                                         
                                         if 'X' in kv and 'Y' in kv:
                                             self.path_history.append((self.telemetry['x'], self.telemetry['y']))
@@ -543,6 +562,20 @@ class RobotRemoteGUI:
             })
         except ValueError:
             messagebox.showerror("Invalid PID value", "All PID fields must contain numbers.")
+
+    def gui_set_compass_offset(self):
+        try:
+            val = float(self.ent_compass_offset.get())
+        except ValueError:
+            messagebox.showerror("Invalid value", "Compass offset must be a number (degrees).")
+            return
+        # Send to robot to save in NVS, then request confirmation via next telemetry update
+        self.send_cmd("compass", {"value": val, "get": True})
+        print(f"[Remote] Sent compass offset set request: {val}")
+
+    def gui_get_compass_offset(self):
+        # Request the robot to include the compass offset in the next telemetry packet
+        self.send_cmd("compass", {"get": True})
 
 if __name__ == "__main__":
     root = tk.Tk()

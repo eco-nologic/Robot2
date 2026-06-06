@@ -9,6 +9,7 @@ struct TelemetryPacket {
     float robotX;
     float robotY;
     float robotHeading;
+    float compassOffset; // Configured compass offset (degrees)
     // Pose "fantôme" (pure odométrie)
     float ghostX;
     float ghostY;

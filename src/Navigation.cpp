@@ -43,6 +43,7 @@ bool Navigation::begin() {
     calibrateGyro();
 
     _data.heading = 0;
+    _data.rawMagHeading = 0;
     _data.gyroZ = 0;
     _data.isCalibrated = false;
     _lastUpdate = millis();
@@ -87,15 +88,16 @@ void Navigation::calibrateGyro() {
         }
     }
 
-    _headingIntegral = 0; 
+    _headingIntegral = 0;
     _lastUpdate = 0;
+    _magFilter.reset();
 }
 
 void Navigation::update() {
     unsigned long now = millis();
-    float dt = (now - _lastUpdate) / 1000.0f;
-    if (dt < 0.001f) return; 
-    _lastUpdate = now;
+    bool firstUpdate = (_lastUpdate == 0);
+    float dt = firstUpdate ? 0.0f : (now - _lastUpdate) / 1000.0f;
+    if (!firstUpdate && dt < 0.001f) return;
 
     // Read raw sensor data
     sensors_event_t accelEvent, gyroEvent, tempEvent;
@@ -113,17 +115,20 @@ void Navigation::update() {
     _rawData.accelX = accelEvent.acceleration.y;
     _rawData.accelY = -accelEvent.acceleration.x;
     _rawData.accelZ = accelEvent.acceleration.z;
-    
+
     _rawData.gyroX = gyroEvent.gyro.y;
     _rawData.gyroY = -gyroEvent.gyro.x;
     _rawData.gyroZ = -gyroEvent.gyro.z;
 
-    // Magnetometer (negated for correct North alignment)
-    _rawData.magX = -magY;
-    _rawData.magY = magX;
-    _rawData.magZ = magZ;
+    // Magnetometer (negated for correct North alignment, then filtered)
+    MagData rawMag(-magY, magX, magZ);
+    MagData filteredMag = _magFilter.update(rawMag);
 
-    // Data from magManager is already calibrated. Use directly for tilt compensation.
+    _rawData.magX = filteredMag.x;
+    _rawData.magY = filteredMag.y;
+    _rawData.magZ = filteredMag.z;
+
+    // Data from magManager is already calibrated and now filtered. Use for tilt compensation.
     float correctedMagX = _rawData.magX;
     float correctedMagY = _rawData.magY;
     float correctedMagZ = _rawData.magZ;
@@ -139,8 +144,18 @@ void Navigation::update() {
     // Calculate absolute magnetic heading
     float magHeading = atan2(-Yh, Xh);
 
+    // Convert raw mag heading to degrees (0-360) for diagnostics
+    float rawMagDeg = magHeading * (180.0f / M_PI);
+    if (rawMagDeg < 0) rawMagDeg += 360.0f;
+    _data.rawMagHeading = rawMagDeg;
+
     // Complementary filter: Gyro (fast) + Magnetometer (stable)
     float gyroZRate = _rawData.gyroZ - _gyroBiasZ;
+
+    // Suppress tiny gyro noise (residual bias below calibration threshold)
+    const float GYRO_DEADBAND = 0.005f; // rad/s (~0.3 °/s)
+    if (fabsf(gyroZRate) < GYRO_DEADBAND) gyroZRate = 0.0f;
+
     float headingError = magHeading - _headingIntegral;
 
     // Normalize error to [-PI, PI]
@@ -148,12 +163,14 @@ void Navigation::update() {
     while (headingError < -M_PI) headingError += 2.0f * M_PI;
 
     // Snap to mag on first update (avoid slow convergence)
-    if (_lastUpdate == 0) {
+    if (firstUpdate) {
         _headingIntegral = magHeading;
     } else {
-        _headingIntegral += (gyroZRate + 0.05f * headingError) * dt;
+        _headingIntegral += (gyroZRate + 0.3f * headingError) * dt;
     }
     
+    _lastUpdate = now;
+
     // Wrap heading to [-PI, PI]
     while (_headingIntegral > M_PI) _headingIntegral -= 2.0f * M_PI;
     while (_headingIntegral < -M_PI) _headingIntegral += 2.0f * M_PI;
@@ -175,10 +192,11 @@ void Navigation::startMagnetometerCalibration() {
 void Navigation::stopMagnetometerCalibration() {
     magManager.stopCalibration();
 
-    // Reset heading filter to snap to new offsets
+    // Reset both heading and signal processing filters to snap to new calibration
     _lastUpdate = 0;
     _headingIntegral = 0;
-    Serial.println("[Nav] Calibration stopped. Filter reset to new baseline.");
+    _magFilter.reset();
+    Serial.println("[Nav] Calibration stopped. Heading and mag filters reset to new baseline.");
 }
 
 bool Navigation::isMagnetometerCalibrated() const {

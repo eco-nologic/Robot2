@@ -75,7 +75,8 @@ constexpr int PIN_I2C_SCL = 22;               // Serial clock line
 constexpr int I2C_FREQUENCY = 100000;         // 100 kHz for improved stability
 constexpr uint8_t ADDR_MPU9250 = 0x68;        // MPU9250 IMU (accel + gyro + mag)
 constexpr uint8_t ADDR_BNO055 = 0x28;         // BNO055 IMU (alternative)
-constexpr float CompassOffsetDeg = 348.0f;    // Calibration: facing North
+// Runtime-configurable compass offset (degrees). Stored in NVS and applied at startup.
+extern float CompassOffsetDeg;
 
 // ============================================================================
 // USER INTERFACE LEDs

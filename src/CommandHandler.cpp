@@ -1,5 +1,6 @@
 #include "CommandHandler.h"
 #include "Navigation.h"
+#include "CalibrationSequence.h"
 #include "HeadingPIDController.h"
 #include "ConfigManager.h"
 #include "LIS3MDLManager.h"
@@ -84,6 +85,23 @@ void CommandHandler::processJSONCommand(uint8_t* data, size_t len) {
         manualAngularVelocity = 0.0f;
         if (_navigation) {
             _navigation->startMagnetometerCalibration();
+        }
+    }
+    else if (strcmp(cmd, "CALIBRATE8") == 0) {
+        Serial.println("🧲 Starting 8-move odometry-only calibration...");
+        // Begin the odometry-only calibration sequence
+        extern CalibrationSequence calibSequence;
+        calibSequence.begin();
+    }
+    else if (strcmp(cmd, "COMPASS") == 0) {
+        // Set or request the compass offset value
+        if (doc.containsKey("value")) {
+            float v = doc["value"] | 0.0f;
+            Config::CompassOffsetDeg = v;
+            configManager.saveFloat("compass_offset", v);
+            Serial.printf("[CommandHandler] Compass offset set to %.2f°\n", v);
+        } else if (doc["get"] | false) {
+            Serial.printf("[CommandHandler] Compass offset requested: %.2f°\n", Config::CompassOffsetDeg);
         }
     }
     // Add other manual controls here

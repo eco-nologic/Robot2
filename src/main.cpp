@@ -7,6 +7,7 @@
 #include "DCMotor.h"
 #include "DriveTrain.h"
 #include "Navigation.h"
+#include "CalibrationSequence.h"
 #include "BatteryMonitor.h"
 #include "ConfigManager.h"
 #include "TelemetryPacket.h"
@@ -23,6 +24,7 @@ DCMotor motorLeft(0);
 DCMotor motorRight(1);
 DriveTrain driveTrain(&motorLeft, &motorRight);
 Navigation navigation;
+CalibrationSequence calibSequence;
 BatteryMonitor battery;
 ConfigManager configManager;
 CommandHandler commandHandler(&driveTrain, &navigation);
@@ -175,6 +177,9 @@ void loop() {
         driveTrain.stop();
     }
 
+    // Update calibration sequence if active
+    calibSequence.update(millis());
+
     // 3. Update battery monitor
     battery.update();
 
@@ -229,8 +234,9 @@ void loop() {
         // Serial debug (every 1 second)
         static unsigned long lastDebugTime = 0;
         if (now - lastDebugTime >= 1000) {
-            Serial.printf("[Loop] X:%.1f Y:%.1f H:%.1f° | Bat:%.2fV | Calib:%d%% | BLE:%s\n",
-                          packet.robotX, packet.robotY, packet.robotHeading,
+            Serial.printf("[Loop] X:%.1f Y:%.1f H_Raw:%.1f° H_Corr:%.1f° | Bat:%.2fV | Calib:%d%% | BLE:%s\n",
+                          packet.robotX, packet.robotY, 
+                          navigation.getRawMagHeading(), packet.robotHeading,
                           packet.batteryVoltage,
                           (int)packet.targetTheta,
                           bluetoothManager.isConnected ? "✅" : "❌");
